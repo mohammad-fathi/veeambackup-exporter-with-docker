@@ -1,0 +1,11 @@
+version: '3'
+services:
+  veeam-exporter:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - VEEAM_REST_SERVER=<VEEAMBACKUP_IP>
+      - VEEAM_REST_PORT=<VEEAMBACKUP_RESTAPI_PORT>
+      - VEEAM_USERNAME=<USERNAME>
+      - VEEAM_PASSWORD=<PASSwORD>
