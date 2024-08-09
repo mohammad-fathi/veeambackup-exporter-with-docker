@@ -2,6 +2,7 @@ version: '3'
 services:
   veeam-exporter:
     build: .
+    container_name: veeam-exporter
     ports:
       - "8000:8000"
     environment:

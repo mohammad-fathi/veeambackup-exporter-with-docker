@@ -1,11 +1,15 @@
 import time
 import requests
-from prometheus_client import start_http_server, Gauge
+from prometheus_client import Gauge, generate_latest
 from urllib3.exceptions import InsecureRequestWarning
+from flask import Flask, Response
 import os
 
 # Disable SSL warnings
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
+# Flask app setup
+app = Flask(__name__)
 
 # CONFIGURATION SECTION
 veeamRestServer = os.getenv("VEEAM_REST_SERVER")
@@ -28,6 +32,9 @@ token_data = {
     'vbr_token': 'string'
 }
 
+# Create a Prometheus gauge for job status
+job_status_gauge = Gauge('veeam_job_status', 'Status of Veeam jobs', ['job_name'])
+
 def get_access_token(url, headers, data):
     try:
         response_token = requests.post(url, headers=headers, data=data, verify=False)
@@ -46,9 +53,19 @@ def get_job_statuses(url, headers):
         print(f"Failed to retrieve job statuses: {e}")
         exit()
 
-def update_metrics(jobs, job_status_gauge):
-    if 'data' in jobs:
-        for job in jobs['data']:
+def update_metrics():
+    jobs_url = f'https://{veeamRestServer}:{veeamRestPort}/api/v1/jobs/states'
+    access_token = get_access_token(token_url, token_headers, token_data)
+
+    # Update the jobs_headers with the new access token
+    jobs_headers = {
+        'Authorization': f'Bearer {access_token}',
+        'x-api-version': '1.1-rev0'
+    }
+
+    job_statuses = get_job_statuses(jobs_url, jobs_headers)
+    if 'data' in job_statuses:
+        for job in job_statuses['data']:
             name = job.get('name', 'Unknown')
             last_result = job.get('lastResult', 'Unknown')
             if last_result == 'Success':
@@ -62,25 +79,10 @@ def update_metrics(jobs, job_status_gauge):
     else:
         print("No job data found")
 
+@app.route('/metrics')
+def metrics():
+    update_metrics()  # Update metrics before exposing
+    return Response(generate_latest(), mimetype='text/plain; charset=utf-8')
+
 if __name__ == '__main__':
-    access_token = get_access_token(token_url, token_headers, token_data)
-    
-    # Update the jobs_headers with the new access token
-    jobs_headers = {
-        'Authorization': f'Bearer {access_token}',
-        'x-api-version': '1.1-rev0'
-    }
-    
-    # Define the jobs_url here
-    jobs_url = f'https://{veeamRestServer}:{veeamRestPort}/api/v1/jobs/states'
-    
-    # Start the Prometheus metrics server
-    start_http_server(8000)
-
-    # Create a Prometheus gauge for job status
-    job_status_gauge = Gauge('veeam_job_status', 'Status of Veeam jobs', ['job_name'])
-
-    while True:
-        job_statuses = get_job_statuses(jobs_url, jobs_headers)
-        update_metrics(job_statuses, job_status_gauge)
-        time.sleep(60)  # Update every minute
+    app.run(host='0.0.0.0', port=8000)
